@@ -50,10 +50,16 @@ export default function Home() {
   async function handleGenerate() {
     if (loading) return;
     setLoading(true);
-    setStatus({ type: 'info', message: '🔍 Fetching live news and generating AI posters... This may take up to 30 seconds.' });
+    setStatus({ type: 'info', message: '🔍 Fetching live news and generating AI posters...' });
 
     try {
       const res = await fetch('/api/generate');
+      
+      if (!res.ok) {
+        setStatus({ type: 'error', message: `❌ Server error (${res.status}). The request may have timed out. Please try again.` });
+        return;
+      }
+
       const data = await res.json();
 
       if (data.success && data.posters && data.posters.length > 0) {

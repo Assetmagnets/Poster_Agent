@@ -5,12 +5,10 @@ import { generateImageUrl } from '@/lib/images';
 import { savePostersToDB } from '@/lib/db';
 
 // Vercel serverless function config
-export const maxDuration = 60; // Allow up to 60 seconds (requires Vercel Pro for >10s)
+export const maxDuration = 10; // Hobby plan limit
 export const dynamic = 'force-dynamic';
 
-// In-memory store for generated posters (persists during the serverless function lifecycle)
-// For Vercel, we use the response itself to pass data to the client
-const MAX_POSTERS = 5;
+const MAX_POSTERS = 3; // Reduced from 5 to stay within timeout
 
 export async function GET(request) {
   try {
@@ -20,51 +18,52 @@ export async function GET(request) {
     const items = await fetchAllNews();
     console.log(`Fetched ${items.length} news items`);
 
-    // 2. Analyze and filter with Gemini
-    const posters = [];
+    // 2. Analyze with Gemini in parallel (batch of first 8 items)
+    const batch = items.slice(0, 8);
+    const analyses = await Promise.allSettled(
+      batch.map(item => analyzeWithGemini(item).then(analysis => ({ item, analysis })))
+    );
+
+    // 3. Filter relevant items and generate images in parallel
+    const relevant = [];
     const seenTitles = new Set();
 
-    for (const item of items) {
-      if (posters.length >= MAX_POSTERS) break;
+    for (const result of analyses) {
+      if (relevant.length >= MAX_POSTERS) break;
+      if (result.status !== 'fulfilled') continue;
 
-      try {
-        const analysis = await analyzeWithGemini(item);
+      const { item, analysis } = result.value;
+      if (!analysis.relevant) continue;
 
-        if (!analysis.relevant) {
-          console.log(`Skipped: ${item.title} (${analysis.reason})`);
-          continue;
-        }
+      const normalizedTitle = analysis.headline.toLowerCase().trim();
+      if (seenTitles.has(normalizedTitle)) continue;
+      seenTitles.add(normalizedTitle);
 
-        // Skip near-duplicates
-        const normalizedTitle = analysis.headline.toLowerCase().trim();
-        if (seenTitles.has(normalizedTitle)) continue;
-        seenTitles.add(normalizedTitle);
-
-        console.log(`Processing: ${analysis.headline}`);
-
-        // 3. Generate AI image URL
-        const imageUrl = await generateImageUrl(analysis.headline, analysis.summary);
-
-        posters.push({
-          id: Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
-          headline: analysis.headline,
-          summary: analysis.summary,
-          caption: analysis.caption,
-          source: item.sourceName || 'Odisha News',
-          date: item.pubDate || new Date().toISOString(),
-          imageUrl: imageUrl,
-          link: item.link,
-          createdAt: new Date().toISOString()
-        });
-
-      } catch (err) {
-        console.error(`Error processing item: ${item.title}`, err.message);
-      }
+      relevant.push({ item, analysis });
     }
+
+    // Generate all image URLs in parallel
+    const imageResults = await Promise.allSettled(
+      relevant.map(({ analysis }) => generateImageUrl(analysis.headline, analysis.summary))
+    );
+
+    const posters = relevant.map(({ item, analysis }, i) => ({
+      id: Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+      headline: analysis.headline,
+      summary: analysis.summary,
+      caption: analysis.caption,
+      source: item.sourceName || 'Odisha News',
+      date: item.pubDate || new Date().toISOString(),
+      imageUrl: imageResults[i].status === 'fulfilled'
+        ? imageResults[i].value
+        : 'https://placehold.co/1080x720/0a0e1a/fbbf24.png?text=Image+Unavailable',
+      link: item.link,
+      createdAt: new Date().toISOString()
+    }));
 
     console.log(`Generated ${posters.length} posters`);
 
-    // Save newly generated posters to Upstash Redis database
+    // Save to database
     if (posters.length > 0) {
       await savePostersToDB(posters);
     }
