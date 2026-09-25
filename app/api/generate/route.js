@@ -47,19 +47,24 @@ export async function GET(request) {
       relevant.map(({ analysis }) => generateImageUrl(analysis.headline, analysis.summary))
     );
 
-    const posters = relevant.map(({ item, analysis }, i) => ({
-      id: Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
-      headline: analysis.headline,
-      summary: analysis.summary,
-      caption: analysis.caption,
-      source: item.sourceName || 'Odisha News',
-      date: item.pubDate || new Date().toISOString(),
-      imageUrl: imageResults[i].status === 'fulfilled'
+    const posters = relevant.map(({ item, analysis }, i) => {
+      const imgResult = imageResults[i].status === 'fulfilled'
         ? imageResults[i].value
-        : 'https://placehold.co/1080x720/0a0e1a/fbbf24.png?text=Image+Unavailable',
-      link: item.link,
-      createdAt: new Date().toISOString()
-    }));
+        : { imageUrl: 'https://placehold.co/1080x720/0a0e1a/fbbf24.png?text=Image+Unavailable', searchKeywords: '' };
+
+      return {
+        id: Date.now().toString(36) + Math.random().toString(36).substring(2, 6),
+        headline: analysis.headline,
+        summary: analysis.summary,
+        caption: analysis.caption,
+        source: item.sourceName || 'Odisha News',
+        date: item.pubDate || new Date().toISOString(),
+        imageUrl: imgResult.imageUrl,
+        searchKeywords: imgResult.searchKeywords || '',
+        link: item.link,
+        createdAt: new Date().toISOString()
+      };
+    });
 
     console.log(`Generated ${posters.length} posters`);
 

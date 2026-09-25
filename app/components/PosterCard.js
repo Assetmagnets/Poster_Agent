@@ -6,10 +6,33 @@ export default function PosterCard({ poster, onDelete }) {
   const posterRef = useRef(null);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [imgRetry, setImgRetry] = useState(0); // 0=primary, 1=simple keywords, 2=gradient
 
   const dateStr = new Date(poster.date).toLocaleDateString('en-IN', {
     year: 'numeric', month: 'long', day: 'numeric'
   });
+
+  // Build the image source based on retry level
+  function getImageSrc() {
+    if (imgRetry === 0) {
+      return poster.imageUrl;
+    }
+    if (imgRetry === 1) {
+      // Fallback: use simple keywords with Pollinations (much more reliable)
+      const keywords = poster.searchKeywords
+        || poster.headline.split(' ').slice(0, 3).join(' ');
+      const encoded = encodeURIComponent(keywords);
+      return `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=720&nologo=true`;
+    }
+    // imgRetry >= 2: give up on external images, use CSS gradient
+    return null;
+  }
+
+  function handleImageError() {
+    if (imgRetry < 2) {
+      setImgRetry(prev => prev + 1);
+    }
+  }
 
   async function handleDownload() {
     if (!posterRef.current || downloading) return;
@@ -64,18 +87,35 @@ export default function PosterCard({ poster, onDelete }) {
     }
   }
 
+  const imgSrc = getImageSrc();
+  const showGradient = imgSrc === null;
+
   return (
     <div className="poster-card">
       {/* This div is what html2canvas captures */}
       <div className="poster-visual" ref={posterRef}>
         <div className="poster-hero-wrapper">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="poster-hero-img"
-            src={poster.imageUrl}
-            alt=""
-            crossOrigin="anonymous"
-          />
+          {showGradient ? (
+            <div
+              className="poster-hero-gradient-bg"
+              style={{
+                width: '100%',
+                height: '100%',
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 40%, #0ea5e9 70%, #38bdf8 100%)',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+              }}
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              className="poster-hero-img"
+              src={imgSrc}
+              alt=""
+              onError={handleImageError}
+            />
+          )}
         </div>
         <div className="poster-hero-gradient"></div>
 
